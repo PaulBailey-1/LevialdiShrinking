@@ -20,6 +20,7 @@ find_package(Eigen3 CONFIG REQUIRED)
 set(SRCS
     "src/main.cpp"
     "src/CCLabeler.cpp"
+    "src/Levialdi.cu"
 )
 
 add_executable(label ${SRCS})

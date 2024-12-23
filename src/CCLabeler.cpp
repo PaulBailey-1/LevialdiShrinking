@@ -1,5 +1,6 @@
 
 #include "CCLabler.h"
+#include "Levialdi.h"
 
 BinaryArray CCLabeler::imgToMap(const cv::Mat& img) {
     BinaryArray mat(img.rows, img.cols);
@@ -69,46 +70,27 @@ void GraphTraverser::getNeighbors(BinaryArray& input, cv::Point point, std::stac
 std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& input) {
     std::vector<cv::Rect> boxes;
 
-    BinaryArray buffers[2];
-    buffers[0] = BinaryArray(input.rows() + 2, input.cols() + 2);
-    buffers[0].fill(false);
-    buffers[0].block(1, 1, input.rows(), input.cols()) = input;
-    buffers[1] = BinaryArray(input.rows() + 2, input.cols() + 2);
-    buffers[1].fill(false);
+    std::vector<Corner> bottomRightCorners = levialdiShrink(input);
 
-    int stepCount = 0;
-    std::vector<Corner> bottomRightCorners;
-    cv::Mat frame(input.rows(), input.cols(), CV_8UC1);
-    while (levialdiShrinkingOperator(buffers[stepCount % 2], buffers[(stepCount + 1) % 2], bottomRightCorners, stepCount)) {
-        for (int row = 0; row < input.rows(); row++) {
-            for (int col = 0; col < input.cols(); col++) {
-                frame.at<uchar>(row, col) = buffers[(stepCount + 1) % 2](row, col) ? 0 : 255;
-            }
+     //Doesn't work on non square arrays?
+    BinaryArray flipped(input.rows(), input.cols());
+    int w = input.cols() - 1;
+    int h = input.rows() - 1;
+    for (int row = 0; row < input.rows(); row++) {
+        for (int col = 0; col < input.cols(); col++) {
+            flipped(w - col, h - row) = input(row, col);
         }
-        cv::imshow("Levialdi", frame);
-        cv::waitKey(1);
-        stepCount++;
     }
-
-    buffers[0].block(1, 1, input.rows(), input.cols()) = input;
-    stepCount = 0;
-    std::vector<Corner> topLeftCorners;
-    while (levialdiShrinkingOperator(buffers[stepCount % 2], buffers[(stepCount + 1) % 2], topLeftCorners, stepCount, true)) {
-        for (int row = 0; row < input.rows(); row++) {
-            for (int col = 0; col < input.cols(); col++) {
-                frame.at<uchar>(row, col) = buffers[(stepCount + 1) % 2](row, col) ? 0 : 255;
-            }
-        }
-        cv::imshow("Levialdi Reverse", frame);
-        cv::waitKey(1);
-        stepCount++;
-    }
+    std::vector<Corner> topLeftCorners = levialdiShrink(flipped);
 
     std::vector<CornerSet> cornerSets;
     for (int i = 0; i < topLeftCorners.size(); i++) {
+
+        topLeftCorners[i].point = cv::Point(h - topLeftCorners[i].point.y, w - topLeftCorners[i].point.x);
+
         bool tlAdded = false;
         for (CornerSet& set : cornerSets) {
-            if (std::abs(topLeftCorners[i].time - set.time) <= 1) {
+            if (std::abs(topLeftCorners[i].time - set.time) <= 50) {
                 set.upperLefts.push_back(topLeftCorners[i].point);
                 tlAdded = true;
                 break;
@@ -123,7 +105,7 @@ std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& inp
     for (int i = 0; i < bottomRightCorners.size(); i++) {
         bool brAdded = false;
         for (CornerSet& set : cornerSets) {
-            if (std::abs(bottomRightCorners[i].time - set.time) <= 1) {
+            if (std::abs(bottomRightCorners[i].time - set.time) <= 50) {
                 set.lowerRights.push_back(bottomRightCorners[i].point);
                 break;
             }
@@ -134,7 +116,9 @@ std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& inp
             std::cout << "Mismatched corner set\n";
         }
         if (set.lowerRights.size() == 1) {
-            boxes.push_back(cv::Rect(set.upperLefts[0], set.lowerRights[0]));
+            cv::Point ul = set.upperLefts[0];
+            cv::Point lr = set.lowerRights[0];
+            boxes.push_back(cv::Rect(cv::Point(ul.x - 1, ul.y - 1), cv::Point(lr.x + 1, lr.y + 1)));
         } else {
             // TODO
             std::cout << "Congradulations! You found an edge case!\n";
@@ -144,40 +128,40 @@ std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& inp
     return boxes;
 }
 
-bool LevialdiAlgorithm::levialdiShrinkingOperator(const BinaryArray& input, BinaryArray& output, std::vector<Corner>& corners, int step, bool reverse) {
-    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
-        int row = rawRow;
-        if (reverse) row = input.rows() - rawRow - 1;
-        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
-            int col = rawCol;
-            if (reverse) col = input.cols() - rawCol - 1;
-            int offset = reverse ? 1 : -1;
-            if (input(row, col)) { // Case 1  
-                output(row, col) = input(row + offset, col) || input(row, col + offset) || input(row + offset, col + offset);
-            } else { // Case 2
-                output(row, col) = input(row + offset, col) && input(row, col + offset);
-            }
-        }
-    }
-    bool notDone = false;
-    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
-        int row = rawRow;
-        if (reverse) row = input.rows() - rawRow - 1;
-        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
-            int col = rawCol;
-            if (reverse) col = input.cols() - rawCol - 1;
-            int offset = reverse ? -1 : 1;
-            if (output(row, col)) {
-                notDone = true;
-            }
-            else if (input(row, col) && !output(row + offset, col) && !output(row, col + offset) && !output(row + offset, col + offset)) {
-                if (reverse) {
-                    corners.push_back(Corner(cv::Point(col - 1, row - 1), step));
-                } else {
-                    corners.push_back(Corner(cv::Point(col, row), step));
-                }
-            }
-        }
-    }
-    return notDone;
-}
+//bool LevialdiAlgorithm::levialdiShrinkingOperator(const BinaryArray& input, BinaryArray& output, std::vector<Corner>& corners, int step, bool reverse) {
+//    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
+//        int row = rawRow;
+//        if (reverse) row = input.rows() - rawRow - 1;
+//        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
+//            int col = rawCol;
+//            if (reverse) col = input.cols() - rawCol - 1;
+//            int offset = reverse ? 1 : -1;
+//            if (input(row, col)) { // Case 1  
+//                output(row, col) = input(row + offset, col) || input(row, col + offset) || input(row + offset, col + offset);
+//            } else { // Case 2
+//                output(row, col) = input(row + offset, col) && input(row, col + offset);
+//            }
+//        }
+//    }
+//    bool notDone = false;
+//    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
+//        int row = rawRow;
+//        if (reverse) row = input.rows() - rawRow - 1;
+//        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
+//            int col = rawCol;
+//            if (reverse) col = input.cols() - rawCol - 1;
+//            int offset = reverse ? -1 : 1;
+//            if (output(row, col)) {
+//                notDone = true;
+//            }
+//            else if (input(row, col) && !output(row + offset, col) && !output(row, col + offset) && !output(row + offset, col + offset)) {
+//                if (reverse) {
+//                    corners.push_back(Corner(cv::Point(col - 1, row - 1), step));
+//                } else {
+//                    corners.push_back(Corner(cv::Point(col, row), step));
+//                }
+//            }
+//        }
+//    }
+//    return notDone;
+//}

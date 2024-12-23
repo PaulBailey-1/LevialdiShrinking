@@ -26,15 +26,6 @@ class LevialdiAlgorithm : public CCLabeler {
 
 public:
 
-	struct Corner {
-		cv::Point point;
-		int time;
-		Corner(cv::Point p, int t) {
-			point = p;
-			time = t;
-		}
-	};
-
 	struct CornerSet {
 		int time;
 		std::vector<cv::Point> upperLefts;
@@ -44,5 +35,5 @@ public:
 
 	static std::vector<cv::Rect> getBoundingBoxes(const BinaryArray& map);
 private:
-	static bool levialdiShrinkingOperator(const BinaryArray& in, BinaryArray& out, std::vector<Corner>& corners, int step, bool reverse = false);
+	//static bool levialdiShrinkingOperator(const BinaryArray& in, BinaryArray& out, std::vector<Corner>& corners, int step, bool reverse = false);
 };

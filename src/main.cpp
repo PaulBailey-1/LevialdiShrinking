@@ -5,12 +5,6 @@
 
 #include "CCLabler.h"
 
-void drawBoundingBoxes(cv::Mat& img, std::vector<cv::Rect> boxes) {
-    for (cv::Rect rect : boxes) {
-        cv::rectangle(img, rect, cv::Scalar(0, 0, 255));
-    }
-}
-
 int main() {
        
     cv::Mat img = cv::imread("../../../map.bmp");
@@ -22,7 +16,9 @@ int main() {
     int time = std::chrono::duration_cast<std::chrono::milliseconds>((std::chrono::high_resolution_clock::now() - start)).count();
     fmt::println("Run time - {}ms", time);
 
-    drawBoundingBoxes(img, bboxes);
+    for (cv::Rect rect : bboxes) {
+        cv::rectangle(img, rect, cv::Scalar(0, 0, 255));
+    }
 
     cv::imshow("Input", img);
     cv::waitKey(0);
