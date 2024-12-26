@@ -1,0 +1,1 @@
+An implementation of Levialdi's amazing shrinking algorithm for finding connected components based on a lecture by professor Calvin Lin of the University of Texas. Parallelization done with CUDA for NVIDIA GPUs.
