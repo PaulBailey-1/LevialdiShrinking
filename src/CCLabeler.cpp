@@ -1,4 +1,6 @@
 
+#include <fmt/core.h>
+
 #include "CCLabler.h"
 #include "Levialdi.h"
 
@@ -61,63 +63,94 @@ void GraphTraverser::getNeighbors(BinaryArray& input, cv::Point point, std::stac
     }
 }
 
+// Rotates array clockwise
+BinaryArray rotate(const BinaryArray& input) {
+    BinaryArray out(input.cols(), input.rows());
+    for (int row = 0; row < input.rows(); row++) {
+        for (int col = 0; col < input.cols(); col++) {
+            out(col, row) = input(input.rows() - 1 - row, col);
+        }
+    }
+    return out;
+}
+
+// Rotates point in img counterclockwise
+cv::Point rotate(cv::Point p, int h) {
+    return cv::Point(p.y, h - p.x);
+}
+
 /**
  * Finds bounding boxes of connected components by Levialdi's shrinking algorithm
- *
- * @param input image
- * @return vector of rectangles as bounding boxes
  */
 std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& input) {
     std::vector<cv::Rect> boxes;
 
-    std::vector<Corner> bottomRightCorners = levialdiShrink(input);
-
-     //Doesn't work on non square arrays?
-    BinaryArray flipped(input.rows(), input.cols());
-    int w = input.cols() - 1;
-    int h = input.rows() - 1;
-    for (int row = 0; row < input.rows(); row++) {
-        for (int col = 0; col < input.cols(); col++) {
-            flipped(w - col, h - row) = input(row, col);
-        }
+    std::vector<Corner> corners[4]; // bottomRight, topRight, topLeft, bottomLeft
+    corners[0] = levialdiShrink(input);
+    BinaryArray rotated = rotate(input);
+    for (int i = 1; i < 4; i++) {
+        corners[i] = levialdiShrink(rotated);
+        rotated = rotate(rotated);
     }
-    std::vector<Corner> topLeftCorners = levialdiShrink(flipped);
 
     std::vector<CornerSet> cornerSets;
-    for (int i = 0; i < topLeftCorners.size(); i++) {
+    for (int i = 0; i < 4; i++) {
 
-        topLeftCorners[i].point = cv::Point(h - topLeftCorners[i].point.y, w - topLeftCorners[i].point.x);
+        // Rotate corner points back to input space
+        for (int j = 0; j < corners[0].size(); j++) {
+            int w = input.cols() - 1;
+            int h = input.rows() - 1;
+            for (int k = 0; k < i; k++) {
+                corners[i][j].point = rotate(corners[i][j].point, h);
+                int temp = h;
+                h = w;
+                w = temp;
+            }
 
-        bool tlAdded = false;
-        for (CornerSet& set : cornerSets) {
-            if (std::abs(topLeftCorners[i].time - set.time) <= 50) {
-                set.upperLefts.push_back(topLeftCorners[i].point);
-                tlAdded = true;
-                break;
+            bool added = false;
+            for (CornerSet& set : cornerSets) {
+                if (set.antiDiagonal && (i == 0 || i == 2)) continue;
+                if (!set.antiDiagonal && (i == 1 || i == 3)) continue;
+                if (corners[i][j].time == set.time) {
+                    if (i == 0 || i == 3) {
+                        set.lower.push_back(corners[i][j].point);
+                    } else {
+                        set.upper.push_back(corners[i][j].point);
+                    }
+                    added = true;
+                    break;
+                }
+            }
+            if (!added) {
+                CornerSet set(corners[i][j].time);
+                if (i == 0 || i == 3) {
+                    set.lower.push_back(corners[i][j].point);
+                }
+                else {
+                    set.upper.push_back(corners[i][j].point);
+                }
+                set.antiDiagonal = i == 1 || i == 3;
+                cornerSets.push_back(set);
             }
         }
-        if (!tlAdded) {
-            CornerSet set(topLeftCorners[i].time);
-            set.upperLefts.push_back(topLeftCorners[i].point);
-            cornerSets.push_back(set);
-        }
     }
-    for (int i = 0; i < bottomRightCorners.size(); i++) {
-        bool brAdded = false;
-        for (CornerSet& set : cornerSets) {
-            if (std::abs(bottomRightCorners[i].time - set.time) <= 50) {
-                set.lowerRights.push_back(bottomRightCorners[i].point);
-                break;
-            }
-        }
-    }
+
+    // TODO: remove duplicates
     for (CornerSet& set : cornerSets) {
-        if (set.lowerRights.size() != set.upperLefts.size()) {
-            std::cout << "Mismatched corner set\n";
+        if (set.upper.size() != set.lower.size()) {
+            continue;
         }
-        if (set.lowerRights.size() == 1) {
-            cv::Point ul = set.upperLefts[0];
-            cv::Point lr = set.lowerRights[0];
+        if (set.lower.size() == 1) {
+            cv::Point ul;
+            cv::Point lr;
+            if (set.antiDiagonal) {
+                ul = cv::Point(set.lower[0].x, set.upper[0].y);
+                lr = cv::Point(set.upper[0].x, set.lower[0].y);
+            }
+            else {
+                ul = set.upper[0];
+                lr = set.lower[0];
+            }
             boxes.push_back(cv::Rect(cv::Point(ul.x - 1, ul.y - 1), cv::Point(lr.x + 1, lr.y + 1)));
         } else {
             // TODO
@@ -127,41 +160,3 @@ std::vector<cv::Rect> LevialdiAlgorithm::getBoundingBoxes(const BinaryArray& inp
 
     return boxes;
 }
-
-//bool LevialdiAlgorithm::levialdiShrinkingOperator(const BinaryArray& input, BinaryArray& output, std::vector<Corner>& corners, int step, bool reverse) {
-//    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
-//        int row = rawRow;
-//        if (reverse) row = input.rows() - rawRow - 1;
-//        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
-//            int col = rawCol;
-//            if (reverse) col = input.cols() - rawCol - 1;
-//            int offset = reverse ? 1 : -1;
-//            if (input(row, col)) { // Case 1  
-//                output(row, col) = input(row + offset, col) || input(row, col + offset) || input(row + offset, col + offset);
-//            } else { // Case 2
-//                output(row, col) = input(row + offset, col) && input(row, col + offset);
-//            }
-//        }
-//    }
-//    bool notDone = false;
-//    for (int rawRow = 1; rawRow < input.rows() - 1; rawRow++) {
-//        int row = rawRow;
-//        if (reverse) row = input.rows() - rawRow - 1;
-//        for (int rawCol = 1; rawCol < input.cols() - 1; rawCol++) {
-//            int col = rawCol;
-//            if (reverse) col = input.cols() - rawCol - 1;
-//            int offset = reverse ? -1 : 1;
-//            if (output(row, col)) {
-//                notDone = true;
-//            }
-//            else if (input(row, col) && !output(row + offset, col) && !output(row, col + offset) && !output(row + offset, col + offset)) {
-//                if (reverse) {
-//                    corners.push_back(Corner(cv::Point(col - 1, row - 1), step));
-//                } else {
-//                    corners.push_back(Corner(cv::Point(col, row), step));
-//                }
-//            }
-//        }
-//    }
-//    return notDone;
-//}

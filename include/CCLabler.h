@@ -28,8 +28,9 @@ public:
 
 	struct CornerSet {
 		int time;
-		std::vector<cv::Point> upperLefts;
-		std::vector<cv::Point> lowerRights;
+		bool antiDiagonal = false;
+		std::vector<cv::Point> upper;
+		std::vector<cv::Point> lower;
 		CornerSet(int t) { time = t; }
 	};
 
